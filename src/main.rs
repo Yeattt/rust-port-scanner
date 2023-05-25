@@ -6,7 +6,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 3 {
-        println!("You must follow these structure: portscanner <IPADDRESS> <PORTS>");
+        println!("You must follow this structure: portscanner <IPADDRESS> <PORTS>");
         return;
     }
 
@@ -18,7 +18,12 @@ fn main() {
         }
     };
 
-    let ports: Vec<u16> = match args[2].parse() {
+    let ports: Result<Vec<u16>, _> = args[2]
+        .split(',')
+        .map(str::parse)
+        .collect();
+
+    let ports: Vec<u16> = match ports {
         Ok(ports) => ports,
         Err(_) => {
             println!("Invalid ports");
@@ -28,16 +33,21 @@ fn main() {
 
     let rt = Runtime::new().unwrap();
 
-    rt.block_on(async {
-        for port in ports {
-            let ip_clone = ip.clone();
+    for port in ports {
+        let ip_clone = ip.clone();
 
-            tokio::spawn(async move {
-                match TcpStream::connect((ip_clone, port)).await {
-                    Ok(_) => println!("Port {} open", port),
-                    Err(_) => println!("Port {} closed", port),
-                }
-            });
-        }
-    })
+        rt.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                TcpStream::connect((ip_clone, port))
+            })
+            .await;
+
+            match result {
+                Ok(Ok(_)) => println!("Port {} open", port),
+                _ => println!("Port {} closed", port),
+            }
+        });
+    }
+
+    rt.shutdown_background();
 }
